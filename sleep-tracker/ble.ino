@@ -37,23 +37,51 @@ void ble_setup(void) {
     // pHeartRateO2Service
     pHeartRateO2Service = pServer->createService(HEARTRATEO2_SERVICE_UUID);
     pHeartRateMeasurementCharacteristic = pHeartRateO2Service->createCharacteristic(
-                                                                                 HEARTRATE_MEASUREMENT_CHARACTERISTIC_UUID,
-                                                                                 BLECharacteristic::PROPERTY_NOTIFY
-                                                                                );
+        HEARTRATE_MEASUREMENT_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
     pHeartRateMeasurementCharacteristic->addDescriptor(new BLE2902());
     pOxygenMeasurementCharacteristic = pHeartRateO2Service->createCharacteristic(
-                                                                            O2_MEASUREMENT_CHARACTERISTIC_UUID,
-                                                                            BLECharacteristic::PROPERTY_NOTIFY
-                                                                         );
+        O2_MEASUREMENT_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
     pHeartRateO2Service->start();
+
+    // pBatteryService
+    pBatteryService = pServer->createService(BATTERY_SERVICE_UUID);
+    pBatteryLevelCharacteristic = pBatteryService->createCharacteristic(
+        BATTERY_LEVEL_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    pBatteryVoltageCharacteristic = pBatteryService->createCharacteristic(
+        BATTERY_VOLTAGE_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    pBatteryService->start();
+
+    // pIMUService
+    pIMUService = pServer->createService(IMU_SERVICE_UUID);
+    pAccelerometerCharacteristic = pIMUService->createCharacteristic(
+        ACCELEROMETER_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    pGyroscopeCharacteristic = pIMUService->createCharacteristic(
+        GYROSCOPE_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    pTemperatureCharacteristic = pIMUService->createCharacteristic(
+        TEMPERATURE_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    pIMUService->start();
     
     // pHeartRateO2ReadRateService
     pHeartRateO2ReadRateService = pServer->createService(HEARTRATEO2_READ_RATE_SERVICE_UUID);
     pHeartRateO2ReadRateCharacteristic = pHeartRateO2ReadRateService->createCharacteristic(
-                                                                                HEARTRATEO2_READ_RATE_CHARACTERISTIC_UUID,
-                                                                                BLECharacteristic::PROPERTY_READ |
-                                                                                BLECharacteristic::PROPERTY_WRITE
-                                                                             );
+        HEARTRATEO2_READ_RATE_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_WRITE
+    );
     pHeartRateO2ReadRateCharacteristic->setCallbacks(new HeartRateO2ReadRateCallbacks());
     pHeartRateO2ReadRateCharacteristic->setValue("None");
     pHeartRateO2ReadRateService->start();
@@ -67,7 +95,4 @@ void ble_setup(void) {
     Serial.println("Waiting a client connection to notify...");
     randomSeed( (unsigned long)( micros()%millis() ) );
     startTime = millis();
-
-    // Callback setup
-    heartRateO2Timer.set(heartRateO2TimerPeriod, measureHeartRateO2);
 }

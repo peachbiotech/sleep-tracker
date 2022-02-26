@@ -22,4 +22,7 @@ void ppg_setup(void) {
     // it's being configured this delay will give some time for the data to catch
     // up.
     delay(4000);
+
+    // Callback setup
+    heartRateO2Timer.set(heartRateO2TimerPeriod, measureHeartRateO2);
 }
