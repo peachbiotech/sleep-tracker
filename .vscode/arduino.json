@@ -1,0 +1,6 @@
+{
+    "configuration": "FlashFreq=80,PartitionScheme=default,UploadSpeed=115200,DebugLevel=none",
+    "board": "esp32:esp32:esp32thing_plus",
+    "port": "/dev/tty.usbserial-DN05LWXA",
+    "sketch": "sleep-tracker/sleep-tracker.ino"
+}
