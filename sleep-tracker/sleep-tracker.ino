@@ -1,104 +1,236 @@
 /*
+  This example sketch gives you exactly what the SparkFun Pulse Oximiter and
+  Heart Rate Monitor is designed to do: read heart rate and blood oxygen levels.
+  This board requires I-squared-C connections but also connections to the reset
+  and mfio pins. When using the device keep LIGHT and CONSISTENT pressure on the
+  sensor. Otherwise you may crush the capillaries in your finger which results
+  in bad or no results. A summary of the hardware connections are as follows:
+  SDA -> SDA
+  SCL -> SCL
+  RESET -> PIN 4
+  MFIO -> PIN 5
 
-  Example of use of the FFT libray
-        Copyright (C) 2014 Enrique Condes
+  Author: Elias Santistevan
+  Date: 8/2019
+  SparkFun Electronics
 
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+  If you run into an error code check the following table to help diagnose your
+  problem:
+  1 = Unavailable Command
+  2 = Unavailable Function
+  3 = Data Format Error
+  4 = Input Value Error
+  5 = Try Again
+  255 = Error Unknown
 */
 
-/*
-  In this example, the Arduino simulates the sampling of a sinusoidal 1000 Hz
-  signal with an amplitude of 100, sampled at 5000 Hz. Samples are stored
-  inside the vReal array. The samples are windowed according to Hamming
-  function. The FFT is computed using the windowed samples. Then the magnitudes
-  of each of the frequencies that compose the signal are calculated. Finally,
-  the frequency with the highest peak is obtained, being that the main frequency
-  present in the signal.
-*/
+// Heartrate and PulseOx includes
+#include <SparkFun_Bio_Sensor_Hub_Library.h>
+#include <Wire.h>
+#include <TimerEvent.h>
 
-#include "arduinoFFT.h"
+// BLE includes
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
 
-arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
-/*
-These values can be changed in order to evaluate the functions
-*/
-/*
-These are the input and output vectors
-Input vectors receive computed results from FFT
-*/
+// Read services and characteristics
+#define HEARTRATEO2_SERVICE_UUID "7ab13626-ddc3-4fa0-b724-06460cc40223"
+#define HEARTRATE_MEASUREMENT_CHARACTERISTIC_UUID "179499e2-a77f-44e8-893a-3e05a904d0e2"
+#define O2_MEASUREMENT_CHARACTERISTIC_UUID "3b040b83-161b-4a11-8ef8-6a869b06e1e9"
 
-unsigned long target = 0L ;
-const int period = 2381;
-int idx = 0;
-int max_buffer_size = 2048;
+// Write services and characteristics
+#define HEARTRATEO2_READ_RATE_SERVICE_UUID "71b55e6a-a938-432c-9304-b119b4f626d2"
+#define HEARTRATEO2_READ_RATE_CHARACTERISTIC_UUID "aba135ba-32a2-4190-a3d6-b26bdc8f123d"
 
-double vReal[max_buffer_size];
-double vImag[max_buffer_size];
 
-#define SCL_INDEX 0x00
-#define SCL_TIME 0x01
-#define SCL_FREQUENCY 0x02
-#define SCL_PLOT 0x03
+// Reset pin, MFIO pin for Heartrate and PulseOx
+int resPin = 12;
+int mfioPin = 13;
 
-void setup()
-{
-  Serial.begin(9600);
-  while(!Serial);
-  Serial.println("Ready");
+// Timer callback for monitoring vitals
+// Changes according to HeartRateO2ReadRateService
+unsigned long startTime;
+TimerEvent heartRateO2Timer;
+unsigned int heartRateO2TimerPeriod = 250;//5*60000; // 5 Minute timer
+bool newRecordingRate = false;
+
+// Takes address, reset pin, and MFIO pin.
+SparkFun_Bio_Sensor_Hub bioHub(resPin, mfioPin);
+
+bioData body;
+// body.heartrate  - Heartrate
+// body.confidence - Confidence in the heartrate value
+// body.oxygen     - Blood oxygen level
+// body.status     - Has a finger been sensed?
+
+bool newSensorDataAvailable = false;
+
+BLEServer *pServer = NULL;
+
+BLEService *pHeartRateO2Service = NULL;
+BLECharacteristic *pHeartRateMeasurementCharacteristic = NULL;
+BLECharacteristic *pOxygenMeasurementCharacteristic = NULL;
+
+BLEService *pHeartRateO2ReadRateService = NULL;
+BLECharacteristic *pHeartRateO2ReadRateCharacteristic = NULL;
+
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+
+
+class ServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      Serial.println("Device connected");
+      deviceConnected = true;
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      Serial.println("Device disconnected");
+    }
+};
+
+class HeartRateO2ReadRateCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      std::string value = pCharacteristic->getValue();
+
+      if (value.length() > 0) {
+        heartRateO2TimerPeriod = (unsigned int) std::stoi(value);
+        Serial.println("*********");
+        Serial.print("New rate: ");
+        Serial.println(heartRateO2TimerPeriod);
+        Serial.println("*********");
+        newRecordingRate = true;
+      }
+    }
+};
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // Init device
+  BLEDevice::init("SleepTracker");  
+  
+  // Create BLE server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
+
+  // Create services and characteristics
+  // pHeartRateO2Service
+  pHeartRateO2Service = pServer->createService(HEARTRATEO2_SERVICE_UUID);
+  pHeartRateMeasurementCharacteristic = pHeartRateO2Service->createCharacteristic(
+                                         HEARTRATE_MEASUREMENT_CHARACTERISTIC_UUID,
+                                         BLECharacteristic::PROPERTY_NOTIFY
+                                        );
+  pHeartRateMeasurementCharacteristic->addDescriptor(new BLE2902());
+  pOxygenMeasurementCharacteristic = pHeartRateO2Service->createCharacteristic(
+                                      O2_MEASUREMENT_CHARACTERISTIC_UUID,
+                                      BLECharacteristic::PROPERTY_NOTIFY
+                                     );
+  pHeartRateO2Service->start();
+  
+  // pHeartRateO2ReadRateService
+  pHeartRateO2ReadRateService = pServer->createService(HEARTRATEO2_READ_RATE_SERVICE_UUID);
+  pHeartRateO2ReadRateCharacteristic = pHeartRateO2ReadRateService->createCharacteristic(
+                                        HEARTRATEO2_READ_RATE_CHARACTERISTIC_UUID,
+                                        BLECharacteristic::PROPERTY_READ |
+                                        BLECharacteristic::PROPERTY_WRITE
+                                       );
+  pHeartRateO2ReadRateCharacteristic->setCallbacks(new HeartRateO2ReadRateCallbacks());
+  pHeartRateO2ReadRateCharacteristic->setValue("None");
+  pHeartRateO2ReadRateService->start();
+
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(HEARTRATEO2_SERVICE_UUID);
+  pAdvertising->setScanResponse(false);
+  pAdvertising->setMinPreferred(0x0);
+  BLEDevice::startAdvertising();
+  Serial.println("Waiting a client connection to notify...");
+  randomSeed( (unsigned long)( micros()%millis() ) );
+  startTime = millis();
+
+  // Callback setup
+  heartRateO2Timer.set(heartRateO2TimerPeriod, measureHeartRateO2);
+  
+  // PulseOx and Heart Rate initialization
+  Wire.begin();
+  int result = bioHub.begin();
+  if (result == 0) // Zero errors!
+    Serial.println("Sensor started!");
+  else
+    Serial.println("Could not communicate with the sensor!!!");
+
+  Serial.println("Configuring Sensor....");
+  int error = bioHub.configBpm(MODE_ONE); // Configuring just the BPM settings.
+  if (error == 0) { // Zero errors!
+    Serial.println("Sensor configured.");
+  }
+  else {
+    Serial.println("Error configuring sensor.");
+    Serial.print("Error: ");
+    Serial.println(error);
+  }
+
+  // Data lags a bit behind the sensor, if you're finger is on the sensor when
+  // it's being configured this delay will give some time for the data to catch
+  // up.
+  Serial.println("Loading up the buffer with data....");
+  delay(4000);
 }
 
-void loop()
-{
-  if (micros() - target >= period)  // sample when time comes
-  {
-    if (idx == max_buffer_size) {
-      idx = 0;
+void loop() {
+  heartRateO2Timer.update();
+  if (newRecordingRate) {
+    heartRateO2Timer.set(heartRateO2TimerPeriod, measureHeartRateO2);
+    newRecordingRate = false;
+  }
+  if (deviceConnected) {
+    if (newSensorDataAvailable) {
+      if (body.confidence >= 95 && body.oxygen >= 50) {
+        Serial.println("Notifying central of new data");
+        pHeartRateMeasurementCharacteristic->setValue(body.heartRate);
+        pOxygenMeasurementCharacteristic->setValue(body.oxygen);
+      }
+      else {
+        Serial.println("Notifying central of invalid data");
+        uint16_t nil_val = 0;
+        pHeartRateMeasurementCharacteristic->setValue(nil_val);
+        pOxygenMeasurementCharacteristic->setValue(nil_val);
+      }
+      pHeartRateMeasurementCharacteristic->notify();
+      pOxygenMeasurementCharacteristic->notify();
+      newSensorDataAvailable = false;
     }
-    int analog_value = analogRead(A0);
-    float voltage = analog_value * (5.0 / 1023.0);
-    Serial.println(voltage);
-    vReal[idx] = voltage;
-    vImag = 0.0;
-    target += 5000 ;  // prepare for next sample
+  }
+  // disconnecting
+  if (!deviceConnected && oldDeviceConnected) {
+    Serial.println("Disconnected");
+    delay(500); // give the bluetooth stack the chance to get things ready
+    pServer->startAdvertising(); // restart advertising
+    Serial.println("Restart advertising");
+    oldDeviceConnected = deviceConnected; // false
+  }
+  // connecting
+  if (deviceConnected && !oldDeviceConnected) {
+    oldDeviceConnected = deviceConnected;
   }
 }
-/*
-void PrintVector(double *vData, uint16_t bufferSize, uint8_t scaleType)
-{
-  for (uint16_t i = 0; i < bufferSize; i++)
-  {
-    double abscissa;
 
-    switch (scaleType)
-    {
-      case SCL_INDEX:
-        abscissa = (i * 1.0);
-  break;
-      case SCL_TIME:
-        abscissa = ((i * 1.0) / samplingFrequency);
-  break;
-      case SCL_FREQUENCY:
-        abscissa = ((i * 1.0 * samplingFrequency) / samples);
-  break;
-    }
-    Serial.print(abscissa, 6);
-    if(scaleType==SCL_FREQUENCY)
-      Serial.print("Hz");
-    Serial.print(" ");
-    Serial.println(vData[i], 4);
-  }
-  Serial.println();
+void measureHeartRateO2() {
+  body = bioHub.readBpm();
+  Serial.println("Measurements:");
+  Serial.print("  Heartrate:            ");
+  Serial.println(body.heartRate);
+  Serial.print("  Oxygen:               ");
+  Serial.println(body.oxygen);
+  Serial.print("  HeartRate Confidence: ");
+  Serial.println(body.confidence);
+  Serial.print("  Status:               ");
+  Serial.println(body.status);
+
+  newSensorDataAvailable = true;
 }
-*/
