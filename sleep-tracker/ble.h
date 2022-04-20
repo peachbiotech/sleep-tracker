@@ -22,6 +22,10 @@
 #define GYROSCOPE_CHARACTERISTIC_UUID "4f6aaa29-8919-44bd-b21d-2950bb9e6922"
 #define TEMPERATURE_CHARACTERISTIC_UUID "9d175382-ac47-4be4-8c60-24ec6024fc8d"
 
+// eeg
+#define EEG_SERVICE_UUID "60b07837-07fc-440f-8109-f2ab0eded10a"
+#define EEG_MEASUREMENT_CHARACTERISTIC_UUID "b9fd519b-d2fb-401a-8fb8-d510b198c505"
+
 // Write services and characteristics
 #define HEARTRATEO2_READ_RATE_SERVICE_UUID "71b55e6a-a938-432c-9304-b119b4f626d2"
 #define HEARTRATEO2_READ_RATE_CHARACTERISTIC_UUID "aba135ba-32a2-4190-a3d6-b26bdc8f123d"
@@ -40,6 +44,9 @@ BLEService *pIMUService = NULL;
 BLECharacteristic *pAccelerometerCharacteristic = NULL;
 BLECharacteristic *pGyroscopeCharacteristic = NULL;
 BLECharacteristic *pTemperatureCharacteristic = NULL;
+
+BLEService *pEEGService = NULL;
+BLECharacteristic *pEEGMeasurementCharacteristic = NULL;
 
 BLEService *pHeartRateO2ReadRateService = NULL;
 BLECharacteristic *pHeartRateO2ReadRateCharacteristic = NULL;

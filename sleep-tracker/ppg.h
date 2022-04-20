@@ -23,6 +23,6 @@ bioData body;
 // body.oxygen     - Blood oxygen level
 // body.status     - Has a finger been sensed?
 
-bool newSensorDataAvailable = false;
+bool newHeartRateO2DataAvailable = false;
 
 void ppg_setup();

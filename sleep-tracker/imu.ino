@@ -76,4 +76,6 @@ void imu_setup(void) {
 
     Serial.println("");
     delay(100);
+    // Callback setup
+    imuTimer.set(imuTimerPeriod, measureIMU);
 }
